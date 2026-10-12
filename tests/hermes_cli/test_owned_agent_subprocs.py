@@ -55,6 +55,13 @@ _OWNERS = {
         "a._host, a._path, a._bridge_token, a._bridge_process = '127.0.0.1', '/wake', 't', None\n"
         "a._spawn_bridge(1)\n"
     ),
+    # A dev server that never answers readiness: the owner dies mid-poll.
+    "verify-app": (
+        "from agent.verify import runner\n"
+        "from agent.verify.recipes import Recipe\n"
+        "threading.Thread(target=runner._run_start_phase, daemon=True,\n"
+        "                 args=(Recipe(name='x', start=child_cmd, port=1), out, 120.0)).start()\n"
+    ),
 }
 
 
@@ -134,6 +141,17 @@ def _sleeper() -> subprocess.Popen:
                             start_new_session=True)
 
 
+@pytest.fixture
+def owned(monkeypatch):
+    """In-process cases: record registrations instead of starting a real supervisor in pytest."""
+    from hermes_cli import process_identity
+
+    groups: list = []
+    monkeypatch.setattr(process_identity, "own_process_groups", lambda pgids: groups.extend(pgids))
+    monkeypatch.setattr(process_identity, "register_child", lambda pid, purpose: None)
+    return groups
+
+
 def _reap(proc: subprocess.Popen) -> None:
     if proc.poll() is None:
         proc.kill()
@@ -174,3 +192,14 @@ def test_raft_stop_releases_the_bridge_it_stopped(monkeypatch):
         assert released == [[bridge.pid]]
     finally:
         _reap(bridge)
+
+
+def test_verify_start_phase_owns_then_releases_the_app_group(monkeypatch, tmp_path, owned):
+    from agent.verify import runner
+    from agent.verify.recipes import Recipe
+
+    released = []
+    monkeypatch.setattr(runner, "release_process_groups", lambda pgids: released.append(list(pgids)))
+    result = runner._run_start_phase(Recipe(name="x", start="sleep 30", port=1), tmp_path, 0.3)
+    assert not result.ready
+    assert len(owned) == 1 and released == [owned]
