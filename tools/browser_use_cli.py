@@ -616,6 +616,7 @@ def _group_popen_kwargs() -> dict:
         si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         return {"creationflags": windows_hide_flags() | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
                 "startupinfo": si}
+    # detached-spawn: ok — awaited CLI; a timeout kills its whole group (_run_cli_killing_process_group)
     return _quiet(_flags, {}, "Windows hide-flags unavailable") if os.name == "nt" else {"start_new_session": True}
 
 
