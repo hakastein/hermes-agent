@@ -1096,7 +1096,8 @@ class LocalEnvironment(BaseEnvironment):
     def _wait_for_process(self, proc, *args, **kwargs) -> dict:
         """Base wait, then hand the command's group back from the owner-death supervisor: once the
         command returned, what it left running in the background (`server &`) is not ours to kill,
-        exactly as on a graceful exit."""
+        exactly as on a graceful exit. A command that yielded to background took the group with it
+        (``ProcessRegistry.adopt_local`` clears ``_hermes_owned_pgid``)."""
         try:
             return super()._wait_for_process(proc, *args, **kwargs)
         finally:
