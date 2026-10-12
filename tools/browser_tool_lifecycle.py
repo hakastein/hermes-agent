@@ -388,13 +388,6 @@ def _reap_orphaned_browser_sessions():
     ``agent-browser-*`` socket dirs; safe from any context."""
     import glob
 
-    # Lightpanda servers keep their own records (no socket dir); sweep them with the
-    # same owner-liveness rule BEFORE the daemon scan, which may return early.
-    def _reap_lp():
-        from tools.browser_lightpanda import reap_orphaned_lightpanda
-        reap_orphaned_lightpanda()
-    _best_effort("Lightpanda orphan reap", _reap_lp)
-
     tmpdir = _bt._socket_safe_tmpdir()
     socket_dirs = []
     # The shared real-profile attach daemon is named, not ``<prefix>_<hex>``; list it explicitly.
