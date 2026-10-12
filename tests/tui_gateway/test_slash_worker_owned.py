@@ -24,6 +24,7 @@ import psutil
 import pytest
 
 from tests.waiting import wait_until
+from hermes_cli import process_identity
 from tui_gateway import server, slash_worker
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -127,7 +128,7 @@ def _group_leader(*shell: str) -> subprocess.Popen:
 @pytest.mark.platforms("posix")
 def test_close_stops_the_whole_group_then_releases_it(monkeypatch):
     released = []
-    monkeypatch.setattr(server, "release_process_groups", lambda pgids: released.append(list(pgids)))
+    monkeypatch.setattr(process_identity, "release_process_groups", lambda pgids: released.append(list(pgids)))
     leader = _group_leader("trap '' TERM; sleep 120 & wait")
     try:
         wait_until(lambda: len(_group(leader.pid)) >= 2, what="the stand-in's child in its group")
@@ -146,7 +147,7 @@ def test_close_stops_the_whole_group_then_releases_it(monkeypatch):
 def test_a_worker_that_already_died_is_never_group_signalled(monkeypatch):
     """A dead leader no longer proves the pgid is ours: leave the group to the supervisor."""
     released, signalled = [], []
-    monkeypatch.setattr(server, "release_process_groups", lambda pgids: released.append(list(pgids)))
+    monkeypatch.setattr(process_identity, "release_process_groups", lambda pgids: released.append(list(pgids)))
     leader = _group_leader("sleep 120 & exit 0")
     try:
         leader.wait(timeout=10)
@@ -157,7 +158,7 @@ def test_a_worker_that_already_died_is_never_group_signalled(monkeypatch):
 
         server._stop_worker_group(leader)
 
-        assert signalled == [0], "a dead worker's group number was signalled"
+        assert signalled and set(signalled) == {0}, "a dead worker's group number was signalled"
         assert released == [], "a group with a live member was released from the supervisor"
         assert all(p.is_running() for p in survivors)
     finally:
@@ -228,7 +229,7 @@ def test_slash_worker_close_reaps_zombie_and_closes_fds(monkeypatch):
             raise subprocess.TimeoutExpired(cmd="x", timeout=timeout)
 
     monkeypatch.setattr(server.os, "killpg", lambda pgid, sig: group_signals.append((pgid, sig)), raising=False)
-    monkeypatch.setattr(server, "release_process_groups", lambda pgids: pytest.fail("a live group was released"))
+    monkeypatch.setattr(process_identity, "release_process_groups", lambda pgids: pytest.fail("a live group was released"))
     worker = object.__new__(server._SlashWorker)
     worker.proc = FakeProc()
 
@@ -236,9 +237,10 @@ def test_slash_worker_close_reaps_zombie_and_closes_fds(monkeypatch):
     worker.close()  # idempotent
 
     if os.name == "posix":
-        # TERM then KILL to the worker's group; the trailing 0 is the existence probe that keeps a
+        # TERM then KILL to the worker's group; the trailing 0s are the existence probes that keep a
         # group with survivors registered with the owner-death supervisor.
-        assert group_signals == [(424242, signal.SIGTERM), (424242, signal.SIGKILL), (424242, 0)]
+        assert group_signals[:2] == [(424242, signal.SIGTERM), (424242, signal.SIGKILL)]
+        assert group_signals[2:] and set(group_signals[2:]) == {(424242, 0)}
     else:
         assert calls["terminate"] == calls["kill"] == 1
     assert calls["wait"] >= 2  # reaped after both terminate and kill

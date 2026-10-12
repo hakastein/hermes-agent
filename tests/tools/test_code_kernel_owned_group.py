@@ -138,10 +138,19 @@ def test_teardown_releases_the_kernels_group(monkeypatch, tmp_path):
 # The surviving cell child is orphaned once its kernel exits; killing it leaves the test subtree.
 @pytest.mark.live_system_guard_bypass
 def test_teardown_keeps_covering_a_cell_child_that_survived_it(monkeypatch, tmp_path):
-    # Ignores the teardown's SIGTERM; the kernel itself exits on it, so no SIGKILL escalation follows.
+    # Ignores the teardown's SIGTERM. Escalation is off so a kernel slow to exit under load cannot
+    # turn the TERM into a tree SIGKILL that takes the child too (the precondition, not the point).
+    from tools import code_execution_tool
+    real_kill = code_execution_tool._kill_process_group
+    monkeypatch.setattr(code_execution_tool, "_kill_process_group",
+                        lambda proc, escalate=False: real_kill(proc, escalate=False))
+    # The ready file is written only once the trap is in place: the receipt alone races a loaded
+    # host, where the teardown's SIGTERM can land before sh has installed it.
+    ready = tmp_path / "trapped"
     kernel, child, calls = _kernel_with_cell_child(
-        monkeypatch, tmp_path, ["sh", "-c", "trap '' TERM; exec sleep 60"])
+        monkeypatch, tmp_path, ["sh", "-c", f"trap '' TERM; : > '{ready}'; exec sleep 60"])
     try:
+        wait_until(ready.exists, what="the cell child to ignore SIGTERM")
         kernel.teardown()
         assert _alive(child), "precondition: the TERM-ignoring cell child survived teardown"
         assert calls == [("register", [kernel.proc.pid])], (

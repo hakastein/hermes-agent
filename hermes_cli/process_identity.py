@@ -689,6 +689,32 @@ def release_process_groups(pgids) -> None:
     _update_supervised_pgids("unregister", pgids)
 
 
+def release_process_group_once_empty(pgid: int, *, proc=None, timeout: float = 1.0) -> bool:
+    """Release ``pgid`` once no member is left; True if released. Polls ``proc`` (its leader) so a
+    dead-but-unreaped leader does not keep the group alive, and waits up to ``timeout`` for killed
+    members to be reaped by init. A member still there after that keeps the group covered, so it
+    still dies with this process. ``timeout=0`` probes once (async callers)."""
+    if os.name != "posix":
+        return False
+    deadline = time.monotonic() + timeout
+    while True:
+        if proc is not None:
+            try:
+                proc.poll()
+            except OSError:
+                pass
+        try:
+            os.killpg(pgid, 0)  # windows-footgun: ok — POSIX-only, returned above; existence probe
+        except ProcessLookupError:
+            release_process_groups([pgid])
+            return True
+        except OSError:
+            pass  # exists but not ours to probe: keep covering it
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
+
+
 def spawn_owned(argv, *, purpose: str, **popen_kwargs) -> subprocess.Popen:
     """Start a long-lived child that dies with this process: the one way to own a child.
 

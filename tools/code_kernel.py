@@ -307,7 +307,8 @@ class SessionKernel:
             from tools.code_execution_tool import _kill_process_group
             _kill_process_group(self.proc, escalate=True)
         if self.proc is not None and not _IS_WINDOWS:
-            _release_group_once_empty(self.proc)
+            from hermes_cli.process_identity import release_process_group_once_empty
+            release_process_group_once_empty(self.proc.pid, proc=self.proc)
         sock, self.server_sock = self.server_sock, None
         try:
             if sock is not None:
@@ -319,16 +320,6 @@ class SessionKernel:
         if self.tmpdir:
             import shutil
             shutil.rmtree(self.tmpdir, ignore_errors=True)
-
-
-def _release_group_once_empty(proc: subprocess.Popen) -> None:
-    """Hand a torn-down kernel's group back from the owner-death supervisor once nothing in it is
-    left. SIGTERMed cell children exit (and get reaped by init) asynchronously, so wait briefly; a
-    cell child that ignored the SIGTERM stays covered, and the next own/release call prunes it."""
-    from hermes_cli.process_identity import release_process_groups
-    from tools.environments.local import _wait_for_group_exit
-    if _wait_for_group_exit(proc, proc.pid, 1.0):
-        release_process_groups([proc.pid])
 
 
 class KernelRegistry:

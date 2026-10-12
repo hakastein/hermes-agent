@@ -20,7 +20,7 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional, Set
 from urllib.parse import quote, unquote
 
 from hermes_cli._subprocess_compat import windows_hide_flags
-from hermes_cli.process_identity import own_process_groups, register_child, release_process_groups
+from hermes_cli.process_identity import own_process_groups, register_child, release_process_group_once_empty
 
 from agent.lsp.protocol import (
     ERROR_CONTENT_MODIFIED, ERROR_METHOD_NOT_FOUND, LSPProtocolError, LSPRequestError, classify_message,
@@ -438,7 +438,7 @@ class LSPClient:
             if proc.returncode is not None:
                 if self._exit_code is None:
                     self._exit_code = proc.returncode
-                _release_group_if_empty(proc.pid)
+                release_process_group_once_empty(proc.pid, timeout=0)
                 return
             try:
                 # ``shutdown`` has already given the protocol a grace period.  Hard-kill
@@ -456,7 +456,7 @@ class LSPClient:
                 pass
             if self._exit_code is None and proc.returncode is not None:
                 self._exit_code = proc.returncode
-            _release_group_if_empty(proc.pid)
+            release_process_group_once_empty(proc.pid, timeout=0)
 
     # ---- request / notification plumbing ----
 
@@ -761,19 +761,6 @@ class LSPClient:
         push = doc.push if not fresh_only or doc.fresh_push() else []
         pull = doc.pull if not fresh_only or doc.fresh_pull() else []
         return _dedupe(push, pull)
-
-
-def _release_group_if_empty(pgid: int) -> None:
-    """Hand the server's process group back from the owner-death supervisor once nothing in it is
-    left. A member that survived teardown stays covered, so it still dies with this process."""
-    if os.name != "posix":
-        return
-    try:
-        os.killpg(pgid, 0)  # windows-footgun: ok — POSIX-only, returned above
-    except ProcessLookupError:
-        release_process_groups([pgid])
-    except OSError:
-        pass  # exists but not ours to probe: keep covering it
 
 
 def _dedupe(*lists: list[dict[str, Any]]) -> list[dict[str, Any]]:

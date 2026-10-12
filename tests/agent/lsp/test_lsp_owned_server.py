@@ -46,7 +46,7 @@ def _client(workspace: Path, script: str, **extra_env: str) -> LSPClient:
 def recorded(monkeypatch):
     calls: list = []
     monkeypatch.setattr(lsp_client, "own_process_groups", lambda pgids: calls.append(("own", list(pgids))))
-    monkeypatch.setattr(lsp_client, "release_process_groups", lambda pgids: calls.append(("release", list(pgids))))
+    monkeypatch.setattr(process_identity, "release_process_groups", lambda pgids: calls.append(("release", list(pgids))))
     monkeypatch.setattr(lsp_client, "register_child", lambda pid, purpose: calls.append(("ledger", pid, purpose)))
     return calls
 

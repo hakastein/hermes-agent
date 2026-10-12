@@ -29,7 +29,7 @@ from hermes_constants import (
     get_hermes_home, get_hermes_home_override, get_process_hermes_home, profile_name_for_home,
     reset_hermes_home_override, set_hermes_home_override)
 from hermes_cli.env_loader import load_hermes_dotenv
-from hermes_cli.process_identity import release_process_groups, spawn_owned
+from hermes_cli.process_identity import release_process_group_once_empty, spawn_owned
 from utils import file_signature, is_truthy_value
 from hermes_state_ids import new_session_id
 from tools.environments.local import hermes_subprocess_env
@@ -394,12 +394,8 @@ def _stop_worker_group(proc) -> None:
                 os.killpg(pgid, sig)  # windows-footgun: ok — POSIX-only, Windows returned above
             with contextlib.suppress(Exception):
                 proc.wait(timeout=1)
-    try:
-        os.killpg(pgid, 0)  # windows-footgun: ok — POSIX-only; existence probe, signals nothing
-    except ProcessLookupError:
-        release_process_groups([pgid])
-    except OSError:
-        pass  # ambiguous: stay covered by the owner-death supervisor
+    # Killed members are reaped by init asynchronously; one still alive after that stays covered.
+    release_process_group_once_empty(pgid, proc=proc)
 
 
 def _display_cfg() -> dict:
