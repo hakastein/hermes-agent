@@ -62,6 +62,20 @@ _OWNERS = {
         "threading.Thread(target=runner._run_start_phase, daemon=True,\n"
         "                 args=(Recipe(name='x', start=child_cmd, port=1), out, 120.0)).start()\n"
     ),
+    # The dashboard's pairing bridge: `node bridge.js --pair-only ...`, with python as node and a
+    # bridge.js that execs the child.
+    "whatsapp-pairing": (
+        "bridge = out / 'bridge'; bridge.mkdir()\n"
+        "(bridge / 'bridge.js').write_text('import os, sys\\nos.execv(sys.executable, ' + repr(child) + ')\\n',\n"
+        "                                  encoding='utf-8')\n"
+        "import hermes_constants\n"
+        "from gateway.platforms import whatsapp_common\n"
+        "from hermes_cli.web_routers import messaging\n"
+        "whatsapp_common.resolve_whatsapp_bridge_dir = lambda: bridge\n"
+        "hermes_constants.find_node_executable = lambda name: sys.executable\n"
+        "messaging._ensure_whatsapp_bridge_dependencies = lambda bridge_dir: None\n"
+        "messaging._spawn_whatsapp_pairing_process(out / 'session', 'bot')\n"
+    ),
     # A command provider that stalls: the owner dies inside its 120 s idle timeout.
     "tts-command": (
         "from tools.tts_command_provider import run_command_provider\n"
@@ -219,3 +233,17 @@ def test_tts_command_owns_then_releases_its_group_after_success_and_idle_kill(mo
     with pytest.raises(subprocess.TimeoutExpired):
         tts.run_command_provider("sleep 30", 0.3)
     assert len(owned) == 2 and released == owned
+
+
+def test_whatsapp_pairing_terminate_releases_the_process_it_stopped(monkeypatch):
+    from hermes_cli.web_routers import messaging
+
+    released = []
+    monkeypatch.setattr(messaging, "release_process_groups", lambda pgids: released.append(list(pgids)))
+    pairing = _sleeper()
+    try:
+        messaging._terminate_whatsapp_pairing(pairing)
+        assert pairing.poll() is not None, "_terminate_whatsapp_pairing() left the process running"
+        assert released == [[pairing.pid]]
+    finally:
+        _reap(pairing)
