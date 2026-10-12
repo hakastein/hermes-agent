@@ -65,6 +65,15 @@ with open(os.path.join(data_dir, "DevToolsActivePort"), "w") as fh:
     fh.write("45678\n/devtools/browser/standin\n")
 '''
 
+# cua-driver serve --embedded --socket <path>; `cua-driver status --socket <path>` is the readiness probe.
+_CUA_PRE = r'''
+if sys.argv[1:2] == ["status"]:
+    sys.exit(0 if os.path.exists(sys.argv[sys.argv.index("--socket") + 1]) else 1)
+if sys.argv[1:2] != ["serve"]:
+    sys.exit(0)
+'''
+_CUA_BODY = 'open(sys.argv[sys.argv.index("--socket") + 1], "w").close()'
+
 _OWNERS = {
     "lightpanda": r'''
 from tools import browser_lightpanda as lp
@@ -79,6 +88,13 @@ os.makedirs(copy_dir)
 port, err = rp._launch_real_profile_chrome(os.environ["STANDIN_BIN"] + "/chrome", copy_dir)
 assert port == 45678, err
 ''',
+    "cua-embedded": r'''
+from tools.computer_use import cua_backend_driver as drv
+drv._resolve_mcp_invocation = lambda cmd, **kw: (cmd, ["mcp"])
+from tools.computer_use.cua_backend_daemon import _EmbeddedCuaDaemon
+d = _EmbeddedCuaDaemon(os.environ["STANDIN_BIN"] + "/cua-driver", "unrestricted")
+d.start()
+''',
 }
 
 _OWNER = r'''
@@ -90,7 +106,8 @@ sys.stdin.read()  # exits when the test closes the pipe: a killed pytest leaves 
 '''
 
 _STANDINS = {"lightpanda": ("lightpanda", _LIGHTPANDA_PRE, _LIGHTPANDA_BODY),
-             "real-profile-chrome": ("chrome", _CHROME_PRE, _CHROME_BODY)}
+             "real-profile-chrome": ("chrome", _CHROME_PRE, _CHROME_BODY),
+             "cua-embedded": ("cua-driver", _CUA_PRE, _CUA_BODY)}
 
 
 def _alive(pid: int) -> bool:
