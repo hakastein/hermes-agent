@@ -43,6 +43,18 @@ _OWNERS = {
         "from plugins.platforms.whatsapp.adapter import _spawn_bridge_process\n"
         "_spawn_bridge_process(child, open(out / 'bridge.log', 'a', encoding='utf-8'), dict(os.environ))\n"
     ),
+    # `raft` on PATH is a wrapper that execs the child; the adapter appends its own bridge argv.
+    "raft-bridge": (
+        "bindir = out / 'bin'; bindir.mkdir()\n"
+        "(bindir / 'raft').write_text('#!/bin/sh\\nexec ' + child_cmd + '\\n', encoding='utf-8')\n"
+        "(bindir / 'raft').chmod(0o755)\n"
+        "os.environ['PATH'] = str(bindir) + os.pathsep + os.environ['PATH']\n"
+        "os.environ['RAFT_PROFILE'] = 'test'\n"
+        "from plugins.platforms.raft.adapter import RaftAdapter\n"
+        "a = RaftAdapter.__new__(RaftAdapter)\n"
+        "a._host, a._path, a._bridge_token, a._bridge_process = '127.0.0.1', '/wake', 't', None\n"
+        "a._spawn_bridge(1)\n"
+    ),
 }
 
 
@@ -143,6 +155,22 @@ async def test_whatsapp_disconnect_releases_the_bridge_it_stopped(monkeypatch):
     try:
         await adapter.disconnect()
         assert bridge.poll() is not None, "disconnect() left the bridge running"
+        assert released == [[bridge.pid]]
+    finally:
+        _reap(bridge)
+
+
+def test_raft_stop_releases_the_bridge_it_stopped(monkeypatch):
+    from plugins.platforms.raft import adapter as raft
+
+    released = []
+    monkeypatch.setattr(raft, "release_process_groups", lambda pgids: released.append(list(pgids)))
+    bridge = _sleeper()
+    a = raft.RaftAdapter.__new__(raft.RaftAdapter)
+    a._bridge_process = bridge
+    try:
+        a._stop_bridge()
+        assert bridge.poll() is not None, "_stop_bridge() left the bridge running"
         assert released == [[bridge.pid]]
     finally:
         _reap(bridge)
